@@ -51,7 +51,7 @@ namespace HybridScheduleCalculator
 
                     while (perfects.Count < 1)
                     {
-                        var studentsRandom = students.Select(s => s.WithWeek(random.Next(2) switch { 0 => "A", 1 => "B" })).ToArray();
+                        var studentsRandom = students.Select(s => s with { Week = random.Next(2) switch { 0 => "A", 1 => "B" } }).ToArray();
                         (var average, var max) = CalculateDistance(studentsRandom);
                         Interlocked.Increment(ref testedPermutations);
                         if (max > MaxAbsoluteDistance) continue;

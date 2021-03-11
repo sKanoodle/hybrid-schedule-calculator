@@ -101,11 +101,23 @@ namespace HybridScheduleCalculator
                         : Math.Abs(g.Count(s => s.Week == "A") - g.Count(s => s.Week == "B")));
             }
 
-            var foo = Subjects
+            // student groups that should not be divided are checked here
+            Dictionary<string, string> extraWürste = new();
+            foreach (var student in students)
+            {
+                if (string.IsNullOrWhiteSpace(student.ExtraWurst))
+                    continue;
+                if (!extraWürste.TryGetValue(student.ExtraWurst, out var week))
+                    extraWürste.Add(student.ExtraWurst, student.Week);
+                else if (student.Week != week)
+                    return (1_000_000, 1_000_000);
+            }
+
+            var (sum, max, count) = Subjects
                 .Select(s => s.getCourse)
                 .SelectMany(distances)
                 .Aggregate((Sum: 0, Max: 0, Count: 0), (acc, distance) => (acc.Sum + distance, Math.Max(acc.Max, distance), acc.Count + 1));
-            return (foo.Sum / (decimal)foo.Count, foo.Max);
+            return (sum / (decimal)count, max);
         }
 
         private static readonly IEnumerable<(string subject, Func<Student, string> getCourse)> Subjects =

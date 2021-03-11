@@ -50,7 +50,18 @@ namespace HybridScheduleCalculator
                 while (csv.Read())
                 {
                     int.TryParse(csv["Grade"], out var parsedGrade);
-                    list.Add(new Student(csv["Name"], parsedGrade, csv["Class"], csv["Ma"], csv["En"], csv["De"], csv["Ph"], csv["WP"], csv["Sp"], csv["Extrawurst"]));
+                    list.Add(new Student(
+                        csv["Name"].Trim(),
+                        parsedGrade,
+                        csv["Class"].Trim(),
+                        csv["Ma"].Trim(),
+                        csv["En"].Trim(),
+                        csv["De"].Trim(),
+                        csv["Ph"].Trim(),
+                        csv["WP"].Trim(),
+                        csv["Sp"].Trim(),
+                        csv["Extrawurst"].Trim()
+                    ));
                 }
                 students = list.ToArray();
             }
@@ -107,6 +118,7 @@ namespace HybridScheduleCalculator
             using var writer = new StreamWriter(file);
             PrintCourses(writer, students);
             PrintStudents(writer, students);
+            PrintExtraWurst(writer, students);
         }
 
         private static (decimal Average, int Max) CalculateDistance(IEnumerable<Student> students)
@@ -169,6 +181,20 @@ namespace HybridScheduleCalculator
             {
                 writer.WriteLine(group.Key);
                 foreach (var student in group.OrderBy(s => s.Week).ThenBy(s => s.Name))
+                    writer.WriteLine($"    {student.Week}  {student.Name}");
+            }
+        }
+
+        private static void PrintExtraWurst(StreamWriter writer, IEnumerable<Student> students)
+        {
+            var extraWürste = students.Where(s => !string.IsNullOrWhiteSpace(s.ExtraWurst)).ToArray();
+            if (extraWürste.Length == 0)
+                return;
+            var groups = extraWürste.GroupBy(s => s.ExtraWurst);
+            foreach (var group in groups)
+            {
+                writer.WriteLine(group.Key);
+                foreach (var student in group)
                     writer.WriteLine($"    {student.Week}  {student.Name}");
             }
         }

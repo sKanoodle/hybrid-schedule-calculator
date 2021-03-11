@@ -28,7 +28,7 @@ namespace HybridScheduleCalculator
             Calculate(maxAvgDistance, maxAbsDistance, studentsFile, grade);
 
             Console.WriteLine("press any key to exit");
-            Console.Read();
+            Console.ReadKey();
         }
 
         private static void Calculate(decimal maxAvgDistance, int maxAbsDistance, string studentsFile, int grade = -1)
@@ -51,16 +51,17 @@ namespace HybridScheduleCalculator
                 {
                     int.TryParse(csv["Grade"], out var parsedGrade);
                     list.Add(new Student(
-                        csv["Name"].Trim(),
+                        csv["Name"]?.Trim(),
                         parsedGrade,
-                        csv["Class"].Trim(),
-                        csv["Ma"].Trim(),
-                        csv["En"].Trim(),
-                        csv["De"].Trim(),
-                        csv["Ph"].Trim(),
-                        csv["WP"].Trim(),
-                        csv["Sp"].Trim(),
-                        csv["Extrawurst"].Trim()
+                        csv["Class"]?.Trim(),
+                        csv["Ma"]?.Trim(),
+                        csv["En"]?.Trim(),
+                        csv["De"]?.Trim(),
+                        csv["Ph"]?.Trim(),
+                        csv["WP"]?.Trim(),
+                        csv["Sp"]?.Trim(),
+                        csv["Extrawurst"]?.Trim(),
+                        csv["Extrawurst2"]?.Trim()
                     ));
                 }
                 students = list.ToArray();
@@ -103,6 +104,7 @@ namespace HybridScheduleCalculator
                 Console.Write($"successes: {successCount}, tries: {testedPermutations.Sum():N0}");
             }
 
+            Console.ReadKey();
             Console.WriteLine($"{Environment.NewLine}aborting...");
             abortRequested = true;
             Thread.Sleep(TimeSpan.FromSeconds(2));
@@ -118,7 +120,8 @@ namespace HybridScheduleCalculator
             using var writer = new StreamWriter(file);
             PrintCourses(writer, students);
             PrintStudents(writer, students);
-            PrintExtraWurst(writer, students);
+            PrintExtraWurst(writer, students, s => s.ExtraWurst);
+            PrintExtraWurst(writer, students, s => s.ExtraWurst2);
         }
 
         private static (decimal Average, int Max) CalculateDistance(IEnumerable<Student> students)
@@ -135,15 +138,25 @@ namespace HybridScheduleCalculator
 
             // student groups that should not be divided are checked here
             Dictionary<string, string> extraWürste = new();
+            bool? extraWürsteInSameWeek(string extraWurstValue, string studentWeek)
+            {
+                if (string.IsNullOrWhiteSpace(extraWurstValue))
+                    return null;
+                if (!extraWürste.TryGetValue(extraWurstValue, out var week))
+                    extraWürste.Add(extraWurstValue, studentWeek);
+                else if (studentWeek != week)
+                    return false;
+                return true;
+            }
+
             foreach (var student in students)
             {
-                if (string.IsNullOrWhiteSpace(student.ExtraWurst))
-                    continue;
-                if (!extraWürste.TryGetValue(student.ExtraWurst, out var week))
-                    extraWürste.Add(student.ExtraWurst, student.Week);
-                else if (student.Week != week)
+                var ew1 = extraWürsteInSameWeek(student.ExtraWurst, student.Week);
+                var ew2 = extraWürsteInSameWeek(student.ExtraWurst2, student.Week);
+                if (ew1.HasValue && !ew1.Value || ew2.HasValue && !ew2.Value)
                     return (1_000_000, 1_000_000);
             }
+
 
             var (sum, max, count) = Subjects
                 .Select(s => s.getCourse)
@@ -185,12 +198,12 @@ namespace HybridScheduleCalculator
             }
         }
 
-        private static void PrintExtraWurst(StreamWriter writer, IEnumerable<Student> students)
+        private static void PrintExtraWurst(StreamWriter writer, IEnumerable<Student> students, Func<Student, string> getExtraWurstValue)
         {
-            var extraWürste = students.Where(s => !string.IsNullOrWhiteSpace(s.ExtraWurst)).ToArray();
+            var extraWürste = students.Where(s => !string.IsNullOrWhiteSpace(getExtraWurstValue(s))).ToArray();
             if (extraWürste.Length == 0)
                 return;
-            var groups = extraWürste.GroupBy(s => s.ExtraWurst);
+            var groups = extraWürste.GroupBy(getExtraWurstValue);
             foreach (var group in groups)
             {
                 writer.WriteLine(group.Key);

@@ -1,4 +1,4 @@
-﻿using CsvHelper;
+using CsvHelper;
 using CsvHelper.Configuration;
 using CsvHelper.Configuration.Attributes;
 using System;
@@ -96,18 +96,30 @@ namespace HybridScheduleCalculator
                 });
             }
 
-            Console.WriteLine("press any key to abort");
-            while (!Console.KeyAvailable && successCount < 10)
+            void print()
             {
-                Thread.Sleep(TimeSpan.FromSeconds(1));
                 Console.CursorLeft = 0;
                 Console.Write($"successes: {successCount}, tries: {testedPermutations.Sum():N0}");
             }
 
-            Console.ReadKey();
-            Console.WriteLine($"{Environment.NewLine}aborting...");
+            Console.WriteLine("press any key to abort");
+            bool keyAbort = false;
+            while (!(keyAbort = Console.KeyAvailable) && successCount < 10)
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(1));
+                print();
+            }
+
+            if (keyAbort)
+            {
+                Console.ReadKey();
+                Console.WriteLine($"{Environment.NewLine}aborting...");
+            }
             abortRequested = true;
             Thread.Sleep(TimeSpan.FromSeconds(2));
+            print();
+            Console.WriteLine($"{Environment.NewLine}finished!");
+        }
         }
 
         private static void Save(string folder, int resultNumber, decimal avg, int max, Student[] students)

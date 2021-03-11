@@ -15,6 +15,7 @@ namespace HybridScheduleCalculator
     class Program
     {
         private static readonly Random MasterRandom = new Random();
+        private static readonly Dictionary<string, List<Student>> ExtraWurstAssignments = new();
 
         static void Main(string[] args)
         {
@@ -70,6 +71,14 @@ namespace HybridScheduleCalculator
             if (grade != -1)
                 students = students.Where(s => s.Grade == grade).ToArray();
 
+            foreach (var student in students)
+            {
+                var extraWurstValue = String.IsNullOrWhiteSpace(student.ExtraWurst) ? String.Empty : student.ExtraWurst;
+                if (!ExtraWurstAssignments.TryGetValue(extraWurstValue, out var list))
+                    ExtraWurstAssignments.Add(extraWurstValue, list = new List<Student>());
+                list.Add(student);
+            }
+
             for (int i = 0; i < threadCount; i++)
             {
                 int threadNumber = i;
@@ -82,7 +91,7 @@ namespace HybridScheduleCalculator
 
                     while (!abortRequested)
                     {
-                        var studentsRandom = students.Select(s => s with { Week = random.Next(2) switch { 0 => "A", 1 => "B" } }).ToArray();
+                        var studentsRandom = RandomizeWeeks(students, random);
                         (var average, var max) = CalculateDistance(studentsRandom);
                         testedPermutations[threadNumber] += 1;
                         if (max > maxAbsDistance) continue;
@@ -120,6 +129,23 @@ namespace HybridScheduleCalculator
             print();
             Console.WriteLine($"{Environment.NewLine}finished!");
         }
+
+        private static Student[] RandomizeWeeks(IEnumerable<Student> students, Random random)
+        {
+            string getRandomWeek() => random.Next(2) switch { 0 => "A", 1 => "B" };
+
+            IEnumerable<Student> regularRandomize(IEnumerable<Student> _students) => _students
+                .Select(s => s with { Week = getRandomWeek() });
+
+            if (ExtraWurstAssignments.Count > 1)
+                return ExtraWurstAssignments
+                    .Where(kvp => kvp.Key != String.Empty) // String.Empty is marker for no group set
+                    .Select(kvp => (List: kvp.Value, Week: getRandomWeek()))
+                    .SelectMany(t => t.List.Select(s => s with { Week = t.Week }))
+                    .Concat(regularRandomize(ExtraWurstAssignments.GetValueOrDefault(String.Empty) ?? Enumerable.Empty<Student>()))
+                    .ToArray();
+
+            return regularRandomize(students).ToArray();
         }
 
         private static void Save(string folder, int resultNumber, decimal avg, int max, Student[] students)

@@ -1,4 +1,4 @@
-﻿using CsvHelper;
+using CsvHelper;
 using CsvHelper.Configuration;
 using CsvHelper.Configuration.Attributes;
 using System;
@@ -15,7 +15,6 @@ namespace HybridScheduleCalculator
     class Program
     {
         private static readonly Random MasterRandom = new Random();
-        private static readonly Dictionary<string, List<Student>> ExtraWurstAssignments = new();
 
         static void Main(string[] args)
         {
@@ -71,13 +70,9 @@ namespace HybridScheduleCalculator
             if (grade != -1)
                 students = students.Where(s => s.Grade == grade).ToArray();
 
-            foreach (var student in students)
-            {
-                var extraWurstValue = String.IsNullOrWhiteSpace(student.ExtraWurst) ? String.Empty : student.ExtraWurst;
-                if (!ExtraWurstAssignments.TryGetValue(extraWurstValue, out var list))
-                    ExtraWurstAssignments.Add(extraWurstValue, list = new List<Student>());
-                list.Add(student);
-            }
+            IRandomizeWeeksStrategy randomizer = students.Any(s => new[] { s.ExtraWurst, s.ExtraWurst2 }.Any(w => string.IsNullOrWhiteSpace(w)))
+                ? new RandomizeWeeksExtraWurstStrategy(students)
+                : new RandomizeWeeksDefaultStrategy(students);
 
             for (int i = 0; i < threadCount; i++)
             {
@@ -88,11 +83,10 @@ namespace HybridScheduleCalculator
                     Random random;
                     lock (MasterRandom)
                         random = new Random(MasterRandom.Next());
-                    Student[] studentsRandom = new Student[students.Length];
 
                     while (!abortRequested)
                     {
-                        RandomizeWeeks(students, studentsRandom, random);
+                        var studentsRandom = randomizer.GetRandomizedStudents(random);
                         (var average, var max) = CalculateDistance(studentsRandom);
                         testedPermutations[threadNumber] += 1;
                         if (max > maxAbsDistance) continue;
@@ -129,36 +123,6 @@ namespace HybridScheduleCalculator
             Thread.Sleep(TimeSpan.FromSeconds(2));
             print();
             Console.WriteLine($"{Environment.NewLine}finished!");
-        }
-
-        private static void RandomizeWeeks(Student[] students, Student[] randomStudents, Random random)
-        {
-            string getRandomWeek() => random.Next(2) switch { 0 => "A", 1 => "B" };
-
-            IEnumerable<Student> regularRandomize(IEnumerable<Student> _students) => _students
-                .Select(s => s with { Week = getRandomWeek() });
-
-            if (ExtraWurstAssignments.Count > 1)
-            {
-                var randoms = ExtraWurstAssignments
-                    .Where(kvp => kvp.Key != String.Empty) // String.Empty is marker for no group set
-                    .Select(kvp => (List: kvp.Value, Week: getRandomWeek()))
-                    .SelectMany(t => t.List.Select(s => s with { Week = t.Week }))
-                    .Concat(regularRandomize(ExtraWurstAssignments.GetValueOrDefault(String.Empty) ?? Enumerable.Empty<Student>()));
-
-                int i = 0;
-                foreach (var student in randoms)
-                {
-                    randomStudents[i] = student;
-                    i += 1;
-                }
-            }
-
-            else
-            {
-                for (int i = 0; i < students.Length; i++)
-                    randomStudents[i] = students[i] with { Week = getRandomWeek() };
-            }
         }
 
         private static void Save(string folder, int resultNumber, decimal avg, int max, Student[] students)

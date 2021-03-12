@@ -1,3 +1,4 @@
+using CommandLine;
 using CsvHelper;
 using CsvHelper.Configuration;
 using CsvHelper.Configuration.Attributes;
@@ -23,41 +24,20 @@ namespace HybridScheduleCalculator
 
         static void Main(string[] args)
         {
-            if (args.Length != 4 && args.Length != 5)
-            {
-                PrintExampleUsage();
+            Options options = null;
+            CommandLine.Parser.Default.ParseArguments<Options>(args)
+                .WithParsed(o => options = o);
+
+            if (options == null)
                 return;
-            }
 
-            decimal maxAvgDistance = decimal.Parse(args[0]);
-            int maxAbsDistance = int.Parse(args[1]);
-            int threadCount = int.Parse(args[2]);
-            string studentsFile = args[3];
-            int grade = -1;
-            if (args.Length > 4)
-                grade = int.Parse(args[4]);
-
-            var students = LoadStudents(studentsFile, grade);
+            var students = LoadStudents(options.Filepath, options.GradeFilter);
             StudentRandomizer = students.Any(s => new[] { s.ExtraWurst, s.ExtraWurst2 }.Any(w => string.IsNullOrWhiteSpace(w)))
                 ? new RandomizeWeeksExtraWurstStrategy(students)
                 : new RandomizeWeeksDefaultStrategy(students);
 
-            StartCalculationThreads(maxAvgDistance, maxAbsDistance, threadCount);
+            StartCalculationThreads(options.MaxAvgDifference, options.MaxAbsDifference, options.ThreadCount);
             ProgressPrintLoop();
-
-            Console.WriteLine("press any key to exit");
-            Console.ReadKey();
-        }
-
-        private static void PrintExampleUsage()
-        {
-            Console.WriteLine("usage: HybridScheduleCalculator <max average difference> <max absolute difference> <thread count> <csv path> [<grade filter>]");
-            Console.WriteLine("example: hsc 1.8 3 8 students.csv");
-            Console.WriteLine("max average difference: between students from the same course in week A vs week B");
-            Console.WriteLine("max absolute difference: between students from the same course in week A vs week B");
-            Console.WriteLine("thread count: number of threads to use for the calculation");
-            Console.WriteLine("csv path: path to the file with all students and their courses");
-            Console.WriteLine("[optional] grade filter: in case there is multiple grades in the csv, filter to calculate only a specific grade");
         }
 
         private static Student[] LoadStudents(string studentsFile, int grade = -1)
@@ -91,7 +71,7 @@ namespace HybridScheduleCalculator
             return result.ToArray();
         }
 
-        private static void StartCalculationThreads(decimal maxAvgDistance, int maxAbsDistance, int threadCount)
+        private static void StartCalculationThreads(double maxAvgDistance, int maxAbsDistance, int threadCount)
         {
             object lockObject = new();
             TestedPermutationsCounts = new int[threadCount];
@@ -109,7 +89,7 @@ namespace HybridScheduleCalculator
                     while (!AbortRequested)
                     {
                         var studentsRandom = StudentRandomizer.GetRandomizedStudents(random);
-                        (var average, var max) = CalculateDistance(studentsRandom);
+                        (var average, var max) = CalculateDifference(studentsRandom);
                         TestedPermutationsCounts[threadNumber] += 1;
                         if (max > maxAbsDistance) continue;
                         if (average > maxAvgDistance) continue;
@@ -123,7 +103,7 @@ namespace HybridScheduleCalculator
             }
         }
 
-        private static void Save(string folder, int resultNumber, decimal avg, int max, Student[] students)
+        private static void Save(string folder, int resultNumber, double avg, int max, Student[] students)
         {
             var name = $"{resultNumber:D4}_{avg:N3}average_{max}max";
             var text = JsonSerializer.Serialize(students);
@@ -137,7 +117,7 @@ namespace HybridScheduleCalculator
             PrintExtraWurst(writer, students, s => s.ExtraWurst2);
         }
 
-        private static (decimal Average, int Max) CalculateDistance(IEnumerable<Student> students)
+        private static (double Average, int Max) CalculateDifference(IEnumerable<Student> students)
         {
             IEnumerable<int> distances(Func<Student, string> getCourse)
             {
@@ -175,7 +155,7 @@ namespace HybridScheduleCalculator
                 .Select(s => s.getCourse)
                 .SelectMany(distances)
                 .Aggregate((Sum: 0, Max: 0, Count: 0), (acc, distance) => (acc.Sum + distance, Math.Max(acc.Max, distance), acc.Count + 1));
-            return (sum / (decimal)count, max);
+            return (sum / (double)count, max);
         }
 
         private static readonly IEnumerable<(string subject, Func<Student, string> getCourse)> Subjects =

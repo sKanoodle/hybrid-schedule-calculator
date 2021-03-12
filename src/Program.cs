@@ -15,64 +15,69 @@ namespace HybridScheduleCalculator
     class Program
     {
         private static readonly Random MasterRandom = new Random();
+        private static IRandomizeWeeksStrategy StudentRandomizer;
+
+        private static bool AbortRequested = false;
+        private static int SuccessCount = 0;
+        private static int[] TestedPermutationsCounts;
 
         static void Main(string[] args)
         {
             decimal maxAvgDistance = decimal.Parse(args[0]);
             int maxAbsDistance = int.Parse(args[1]);
-            string studentsFile = args[2];
+            int threadCount = int.Parse(args[2]);
+            string studentsFile = args[3];
             int grade = -1;
-            if (args.Length > 3)
-                grade = int.Parse(args[3]);
+            if (args.Length > 4)
+                grade = int.Parse(args[4]);
 
-            Calculate(maxAvgDistance, maxAbsDistance, studentsFile, grade);
+            var students = LoadStudents(studentsFile, grade);
+            StudentRandomizer = students.Any(s => new[] { s.ExtraWurst, s.ExtraWurst2 }.Any(w => string.IsNullOrWhiteSpace(w)))
+                ? new RandomizeWeeksExtraWurstStrategy(students)
+                : new RandomizeWeeksDefaultStrategy(students);
+
+            StartCalculationThreads(maxAvgDistance, maxAbsDistance, threadCount);
+            ProgressPrintLoop();
 
             Console.WriteLine("press any key to exit");
             Console.ReadKey();
         }
 
-        private static void Calculate(decimal maxAvgDistance, int maxAbsDistance, string studentsFile, int grade = -1)
+        private static Student[] LoadStudents(string studentsFile, int grade = -1)
         {
-            Student[] students;
-            const int threadCount = 8;
-            bool abortRequested = false;
-
-            object lockObject = new();
-            int successCount = 0;
-            int[] testedPermutations = new int[threadCount];
-
-            using (var reader = new StreamReader(studentsFile))
-            using (var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture) { HeaderValidated = null, MissingFieldFound = null }))
+            using var reader = new StreamReader(studentsFile);
+            using var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture) { HeaderValidated = null, MissingFieldFound = null });
+            var result = new List<Student>();
+            csv.Read();
+            csv.ReadHeader();
+            while (csv.Read())
             {
-                var list = new List<Student>();
-                csv.Read();
-                csv.ReadHeader();
-                while (csv.Read())
-                {
-                    int.TryParse(csv["Grade"], out var parsedGrade);
-                    list.Add(new Student(
-                        csv["Name"]?.Trim(),
-                        parsedGrade,
-                        csv["Class"]?.Trim(),
-                        csv["Ma"]?.Trim(),
-                        csv["En"]?.Trim(),
-                        csv["De"]?.Trim(),
-                        csv["Ph"]?.Trim(),
-                        csv["WP"]?.Trim(),
-                        csv["Sp"]?.Trim(),
-                        csv["Extrawurst"]?.Trim(),
-                        csv["Extrawurst2"]?.Trim()
-                    ));
-                }
-                students = list.ToArray();
+                int.TryParse(csv["Grade"], out var parsedGrade);
+                result.Add(new Student(
+                    csv["Name"]?.Trim(),
+                    parsedGrade,
+                    csv["Class"]?.Trim(),
+                    csv["Ma"]?.Trim(),
+                    csv["En"]?.Trim(),
+                    csv["De"]?.Trim(),
+                    csv["Ph"]?.Trim(),
+                    csv["WP"]?.Trim(),
+                    csv["Sp"]?.Trim(),
+                    csv["Extrawurst"]?.Trim(),
+                    csv["Extrawurst2"]?.Trim()
+                ));
             }
 
             if (grade != -1)
-                students = students.Where(s => s.Grade == grade).ToArray();
+                return result.Where(s => s.Grade == grade).ToArray();
 
-            IRandomizeWeeksStrategy randomizer = students.Any(s => new[] { s.ExtraWurst, s.ExtraWurst2 }.Any(w => string.IsNullOrWhiteSpace(w)))
-                ? new RandomizeWeeksExtraWurstStrategy(students)
-                : new RandomizeWeeksDefaultStrategy(students);
+            return result.ToArray();
+        }
+
+        private static void StartCalculationThreads(decimal maxAvgDistance, int maxAbsDistance, int threadCount)
+        {
+            object lockObject = new();
+            TestedPermutationsCounts = new int[threadCount];
 
             for (int i = 0; i < threadCount; i++)
             {
@@ -84,45 +89,21 @@ namespace HybridScheduleCalculator
                     lock (MasterRandom)
                         random = new Random(MasterRandom.Next());
 
-                    while (!abortRequested)
+                    while (!AbortRequested)
                     {
-                        var studentsRandom = randomizer.GetRandomizedStudents(random);
+                        var studentsRandom = StudentRandomizer.GetRandomizedStudents(random);
                         (var average, var max) = CalculateDistance(studentsRandom);
-                        testedPermutations[threadNumber] += 1;
+                        TestedPermutationsCounts[threadNumber] += 1;
                         if (max > maxAbsDistance) continue;
                         if (average > maxAvgDistance) continue;
                         lock (lockObject)
                         {
-                            successCount += 1;
-                            Save(Path.GetFullPath("."), successCount, average, max, studentsRandom);
+                            SuccessCount += 1;
+                            Save(Path.GetFullPath("."), SuccessCount, average, max, studentsRandom);
                         }
                     }
                 });
             }
-
-            void print()
-            {
-                Console.CursorLeft = 0;
-                Console.Write($"successes: {successCount}, tries: {testedPermutations.Sum():N0}");
-            }
-
-            Console.WriteLine("press any key to abort");
-            bool keyAbort = false;
-            while (!(keyAbort = Console.KeyAvailable) && successCount < 10)
-            {
-                Thread.Sleep(TimeSpan.FromSeconds(1));
-                print();
-            }
-
-            if (keyAbort)
-            {
-                Console.ReadKey();
-                Console.WriteLine($"{Environment.NewLine}aborting...");
-            }
-            abortRequested = true;
-            Thread.Sleep(TimeSpan.FromSeconds(2));
-            print();
-            Console.WriteLine($"{Environment.NewLine}finished!");
         }
 
         private static void Save(string folder, int resultNumber, decimal avg, int max, Student[] students)
@@ -191,6 +172,35 @@ namespace HybridScheduleCalculator
                 ("WP", s => s.WP),
                 ("Sport", s => s.Sp)
             };
+
+        private static void ProgressPrintLoop()
+        {
+            static void print()
+            {
+                Console.CursorLeft = 0;
+                Console.Write($"successes: {SuccessCount}, tries: {TestedPermutationsCounts.Sum():N0}");
+            }
+
+            Console.WriteLine("press any key to abort");
+            bool keyAbort;
+            while (!(keyAbort = Console.KeyAvailable) && SuccessCount < 10)
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(1));
+                print();
+            }
+
+            if (keyAbort)
+            {
+                Console.ReadKey();
+                Console.Write($"{Environment.NewLine}aborting...");
+                Console.CursorTop -= 1;
+            }
+
+            AbortRequested = true;
+            Thread.Sleep(TimeSpan.FromSeconds(2));
+            print();
+            Console.WriteLine($"{Environment.NewLine}finished!      "); // spaces to overwrite "aborting..."
+        }
 
         private static void PrintCourses(StreamWriter writer, IEnumerable<Student> students)
         {

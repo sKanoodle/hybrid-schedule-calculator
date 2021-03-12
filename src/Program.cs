@@ -1,4 +1,4 @@
-using CsvHelper;
+﻿using CsvHelper;
 using CsvHelper.Configuration;
 using CsvHelper.Configuration.Attributes;
 using System;
@@ -34,7 +34,7 @@ namespace HybridScheduleCalculator
 
         private static void Calculate(decimal maxAvgDistance, int maxAbsDistance, string studentsFile, int grade = -1)
         {
-            IEnumerable<Student> students;
+            Student[] students;
             const int threadCount = 8;
             bool abortRequested = false;
 
@@ -88,10 +88,11 @@ namespace HybridScheduleCalculator
                     Random random;
                     lock (MasterRandom)
                         random = new Random(MasterRandom.Next());
+                    Student[] studentsRandom = new Student[students.Length];
 
                     while (!abortRequested)
                     {
-                        var studentsRandom = RandomizeWeeks(students, random);
+                        RandomizeWeeks(students, studentsRandom, random);
                         (var average, var max) = CalculateDistance(studentsRandom);
                         testedPermutations[threadNumber] += 1;
                         if (max > maxAbsDistance) continue;
@@ -130,7 +131,7 @@ namespace HybridScheduleCalculator
             Console.WriteLine($"{Environment.NewLine}finished!");
         }
 
-        private static Student[] RandomizeWeeks(IEnumerable<Student> students, Random random)
+        private static void RandomizeWeeks(Student[] students, Student[] randomStudents, Random random)
         {
             string getRandomWeek() => random.Next(2) switch { 0 => "A", 1 => "B" };
 
@@ -138,14 +139,26 @@ namespace HybridScheduleCalculator
                 .Select(s => s with { Week = getRandomWeek() });
 
             if (ExtraWurstAssignments.Count > 1)
-                return ExtraWurstAssignments
+            {
+                var randoms = ExtraWurstAssignments
                     .Where(kvp => kvp.Key != String.Empty) // String.Empty is marker for no group set
                     .Select(kvp => (List: kvp.Value, Week: getRandomWeek()))
                     .SelectMany(t => t.List.Select(s => s with { Week = t.Week }))
-                    .Concat(regularRandomize(ExtraWurstAssignments.GetValueOrDefault(String.Empty) ?? Enumerable.Empty<Student>()))
-                    .ToArray();
+                    .Concat(regularRandomize(ExtraWurstAssignments.GetValueOrDefault(String.Empty) ?? Enumerable.Empty<Student>()));
 
-            return regularRandomize(students).ToArray();
+                int i = 0;
+                foreach (var student in randoms)
+                {
+                    randomStudents[i] = student;
+                    i += 1;
+                }
+            }
+
+            else
+            {
+                for (int i = 0; i < students.Length; i++)
+                    randomStudents[i] = students[i] with { Week = getRandomWeek() };
+            }
         }
 
         private static void Save(string folder, int resultNumber, decimal avg, int max, Student[] students)
